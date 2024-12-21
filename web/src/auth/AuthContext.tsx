@@ -3,9 +3,9 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { OktaAuth } from '@okta/okta-auth-js';
 
 export const oktaAuth = new OktaAuth({
-    issuer: process.env.REACT_APP_OKTA_ISSUER || 'https://dev-69669788.okta.com/oauth2/default',
-    clientId: process.env.REACT_APP_OKTA_CLIENT_ID || '0oalk71pjg6D7yJt75d7',
-    redirectUri: window.location.origin + '/login/callback',
+    issuer: 'https://dev-69669788.okta.com/oauth2/default',
+    clientId: '0oalk71pjg6D7yJt75d7',
+    redirectUri: 'http://localhost:3000/login/callback',
     scopes: ['openid', 'profile', 'email'],
     pkce: true, 
     tokenManager: {
@@ -19,12 +19,14 @@ interface AuthContextType {
   login: () => Promise<void>;
   logout: () => Promise<void>;
   oktaAuth: OktaAuth;
+  loading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true); // Add this
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
@@ -32,16 +34,30 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   }, []);
 
   const checkAuthentication = async () => {
-    const authenticated = await oktaAuth.isAuthenticated();
-    if (authenticated) {
-      const user = await oktaAuth.getUser();
-      setUser(user);
+    try {
+      setLoading(true);
+      const authenticated = await oktaAuth.isAuthenticated();
+      if (authenticated) {
+        const user = await oktaAuth.getUser();
+        setUser(user);
+      }
+      setIsAuthenticated(authenticated);
+      console.log('Auth state:', { authenticated, user }); // Debug log
+    } catch (error) {
+      console.error('Auth check failed:', error);
+    } finally {
+      setLoading(false);
     }
-    setIsAuthenticated(authenticated);
   };
 
   const login = async () => {
-    await oktaAuth.signInWithRedirect();
+    console.log('Starting login redirect...');
+    try {
+      await oktaAuth.signInWithRedirect();
+      console.log('Redirect initiated');
+    } catch (error) {
+      console.error('Login redirect failed:', error);
+    }
   };
 
   const logout = async () => {
@@ -49,7 +65,7 @@ export const AuthProvider: React.FC<{children: React.ReactNode}> = ({ children }
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, oktaAuth }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, oktaAuth, loading }}>
       {children}
     </AuthContext.Provider>
   );

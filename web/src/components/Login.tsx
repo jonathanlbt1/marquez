@@ -16,7 +16,7 @@ const Login = () => {
         minHeight="100vh"
       >
         <Typography variant="h4" gutterBottom>
-          Welcome to Marquez
+          Welcome to Nu Data Lineage
         </Typography>
         <Button variant="contained" color="primary" onClick={login}>
           Sign in with Okta

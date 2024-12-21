@@ -9,7 +9,7 @@ import { NotFound } from '../routes/not-found/NotFound'
 import { AuthProvider } from '../auth/AuthContext'
 import { Provider } from 'react-redux'
 import { ReduxRouter, createRouterMiddleware } from '@lagunovsky/redux-react-router'
-import { Route, Routes } from 'react-router-dom'
+import { Outlet, Route, Routes } from 'react-router-dom'
 import { StyledEngineProvider, ThemeProvider } from '@mui/material/styles'
 import { applyMiddleware, createStore } from 'redux'
 import { composeWithDevTools } from '@redux-devtools/extension'
@@ -31,6 +31,7 @@ import rootSaga from '../store/sagas'
 import { PrivateRoute } from './PrivateRoute'
 import Login from './Login';
 import LoginCallback from './LoginCallback';
+import ErrorBoundary from './ErrorBoundary';
 
 const sagaMiddleware = createSagaMiddleware({
   onError: (error, _sagaStackIgnored) => {
@@ -47,76 +48,50 @@ const store = createStore(
 
 sagaMiddleware.run(rootSaga)
 
-const TITLE = 'Marquez'
+const TITLE = 'Nu Data Lineage'
 
+// src/components/App.tsx
 const App = (): ReactElement => {
   return (
-    <Provider store={store}>
-      <AuthProvider>
-      <HelmetProvider>
-        <ReduxRouter history={history}>
-          <StyledEngineProvider injectFirst>
-            <ThemeProvider theme={theme}>
-              <LocalizationProvider dateAdapter={AdapterDayjs}>
-                <Helmet>
-                  <title>{TITLE}</title>
-                </Helmet>
-                <CssBaseline />
-                <Box ml={'80px'}>
-                  <Sidenav />
-                  <Container maxWidth={'lg'} disableGutters={true}>
-                    <Header />
-                  </Container>
-                  <Routes>
-                    <Route path="/login" element={<Login />} />
-                    <Route path="/login/callback" element={<LoginCallback />} />
-                    <Route path={'/'} element={<PrivateRoute>
-                        <Dashboard />
-                      </PrivateRoute>} />
-                    <Route path={'/jobs'} element={
-                      <PrivateRoute>
-                        <Jobs />
-                      </PrivateRoute>} />
-                    <Route path={'/datasets'} element={
-                      <PrivateRoute>
-                        <Datasets />
-                      </PrivateRoute>} />
-                    <Route path={'/events'} element={
-                      <PrivateRoute>
-                        <Events />
-                      </PrivateRoute>} />                    
-                    <Route path={'/datasets/:namespace/:name'} element={
-                      <PrivateRoute>
-                        <ColumnLevel />
-                      </PrivateRoute>} />
-                    <Route path={'/lineage/:nodeType/:namespace/:name'} element={
-                      <PrivateRoute>
-                        <TableLevel />
-                      </PrivateRoute>} />
-                    <Route path={'/datasets'} element={
-                      <Datasets />
-                    } />
-                    <Route path={'/events'} element={
-                      <PrivateRoute>
-                        <Events />
-                      </PrivateRoute> } />
-                    <Route
-                      path={'/datasets/column-level/:namespace/:name'}
-                      element={<ColumnLevel />}
-                    />
-                    <Route path={'/lineage/:nodeType/:namespace/:name'} element={<TableLevel />} />
-                    <Route path='*' element={<NotFound />} />
-                  </Routes>
-                  <Toast />
-                </Box>
-              </LocalizationProvider>
-            </ThemeProvider>
-          </StyledEngineProvider>
-        </ReduxRouter>
-      </HelmetProvider>
-      </AuthProvider>
-    </Provider>
-  )
-}
+    <ErrorBoundary>
+      <Provider store={store}>
+        <AuthProvider>
+          <HelmetProvider>
+            <ReduxRouter history={history}>
+              <StyledEngineProvider injectFirst>
+                <ThemeProvider theme={theme}>
+                  <LocalizationProvider dateAdapter={AdapterDayjs}>
+                    <Routes>
+                      <Route path="/login" element={<Login />} />
+                      <Route path="/login/callback" element={<LoginCallback />} />
+                      <Route path="/" element={
+                        <PrivateRoute>
+                          <Outlet /> {/* Add this */}
+                        </PrivateRoute>
+                      }>
+                        <Route index element={
+                          <>
+                            <Box ml={'80px'}>
+                              <Sidenav />
+                              <Container maxWidth={'lg'} disableGutters={true}>
+                                <Header />
+                                <Dashboard />
+                              </Container>
+                            </Box>
+                          </>
+                        } />
+                        <Route path="jobs" element={<Jobs />} />
+                      </Route>
+                    </Routes>
+                  </LocalizationProvider>
+                </ThemeProvider>
+              </StyledEngineProvider>
+            </ReduxRouter>
+          </HelmetProvider>
+        </AuthProvider>
+      </Provider>
+    </ErrorBoundary>
+  );
+};
 
 export default App

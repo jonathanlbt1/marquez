@@ -12,7 +12,7 @@ const LoginCallback = () => {
     const handleCallback = async () => {
       try {
         await oktaAuth.handleRedirect();
-        navigate('/');
+        navigate('/', { replace: true });
       } catch (error) {
         console.error('Error handling redirect:', error);
         navigate('/login');
