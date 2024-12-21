@@ -7,9 +7,11 @@ export const oktaAuth = new OktaAuth({
     clientId: process.env.REACT_APP_OKTA_CLIENT_ID || '0oalk71pjg6D7yJt75d7',
     redirectUri: window.location.origin + '/login/callback',
     scopes: ['openid', 'profile', 'email'],
-    pkce: true // PKCE flow for SPA security
+    pkce: true, 
+    tokenManager: {
+      storage: 'localStorage'
+    }
 });
-  
 
 interface AuthContextType {
   isAuthenticated: boolean;
