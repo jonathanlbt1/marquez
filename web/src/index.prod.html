@@ -4,25 +4,33 @@ SPDX-License-Identifier: Apache-2.0SPDX-License-Identifier: Apache-2.0
 -->
 
 <!DOCTYPE html>
-<html>
-    <head>
-        <meta charset="UTF-8"/>
-        <title>Marquez</title>
-        <link rel="icon" href="img/icon.svg" type="image/svg+xml">
-        <link rel="icon" href="img/favicon.png" type="image/png">
-        <base href="/"/>
-        <link rel="preconnect" href="https://fonts.gstatic.com">
-        <link
-                href="https://fonts.googleapis.com/css?family=Inconsolata:400,700|Karla:400,700&display=swap"
-                rel="stylesheet"
-        />
-        <link href='https://fonts.googleapis.com/css?family=Source+Code+Pro' rel='stylesheet' type='text/css'>
-    </head>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Marquez</title>
+    <link rel="icon" href="img/icon.svg" type="image/svg+xml">
+    <link rel="icon" href="img/favicon.png" type="image/png">
+    <base href="/" />
+    <link rel="preconnect" href="https://fonts.gstatic.com">
+    <link
+      href="https://fonts.googleapis.com/css?family=Inconsolata:400,700|Karla:400,700&display=swap"
+      rel="stylesheet"
+    />
+    <link href='https://fonts.googleapis.com/css?family=Source+Code+Pro' rel='stylesheet' type='text/css'>
+  </head>
+  
+  <body>
+    <div id="root"></div>
+    
+    <!-- External Dependencies -->
+    <script 
+      src="https://global.oktacdn.com/okta-auth-js/7.5.1/okta-auth-js.min.js" 
+      integrity="sha384-6epSwnIDkI5zFNEVNjEYy3A7aSZ+C7ehmEyG8zDJZfP9Bmnxc51TK8du+2me4pjb" 
+      crossorigin="anonymous"
+      defer
+    ></script>
 
-    <body>
-        <div id="root"></div>
-
-        <!-- Main -->
-        <script src="./bundle.js"></script>
-    </body>
+    <!-- Application Code -->
+    <script src="./bundle.js" defer></script>
+  </body>
 </html>

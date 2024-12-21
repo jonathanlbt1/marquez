@@ -6,6 +6,7 @@ import { Box, Container, CssBaseline } from '@mui/material'
 import { Helmet, HelmetProvider } from 'react-helmet-async'
 import { LocalizationProvider } from '@mui/x-date-pickers'
 import { NotFound } from '../routes/not-found/NotFound'
+import { AuthProvider } from '../auth/AuthContext'
 import { Provider } from 'react-redux'
 import { ReduxRouter, createRouterMiddleware } from '@lagunovsky/redux-react-router'
 import { Route, Routes } from 'react-router-dom'
@@ -27,6 +28,9 @@ import Toast from './Toast'
 import createRootReducer from '../store/reducers'
 import createSagaMiddleware from 'redux-saga'
 import rootSaga from '../store/sagas'
+import { PrivateRoute } from './PrivateRoute'
+import Login from './Login';
+import LoginCallback from './LoginCallback';
 
 const sagaMiddleware = createSagaMiddleware({
   onError: (error, _sagaStackIgnored) => {
@@ -48,6 +52,7 @@ const TITLE = 'Marquez'
 const App = (): ReactElement => {
   return (
     <Provider store={store}>
+      <AuthProvider>
       <HelmetProvider>
         <ReduxRouter history={history}>
           <StyledEngineProvider injectFirst>
@@ -63,10 +68,38 @@ const App = (): ReactElement => {
                     <Header />
                   </Container>
                   <Routes>
-                    <Route path={'/'} element={<Dashboard />} />
-                    <Route path={'/jobs'} element={<Jobs />} />
-                    <Route path={'/datasets'} element={<Datasets />} />
-                    <Route path={'/events'} element={<Events />} />
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/login/callback" element={<LoginCallback />} />
+                    <Route path={'/'} element={<PrivateRoute>
+                        <Dashboard />
+                      </PrivateRoute>} />
+                    <Route path={'/jobs'} element={
+                      <PrivateRoute>
+                        <Jobs />
+                      </PrivateRoute>} />
+                    <Route path={'/datasets'} element={
+                      <PrivateRoute>
+                        <Datasets />
+                      </PrivateRoute>} />
+                    <Route path={'/events'} element={
+                      <PrivateRoute>
+                        <Events />
+                      </PrivateRoute>} />                    
+                    <Route path={'/datasets/:namespace/:name'} element={
+                      <PrivateRoute>
+                        <ColumnLevel />
+                      </PrivateRoute>} />
+                    <Route path={'/lineage/:nodeType/:namespace/:name'} element={
+                      <PrivateRoute>
+                        <TableLevel />
+                      </PrivateRoute>} />
+                    <Route path={'/datasets'} element={
+                      <Datasets />
+                    } />
+                    <Route path={'/events'} element={
+                      <PrivateRoute>
+                        <Events />
+                      </PrivateRoute> } />
                     <Route
                       path={'/datasets/column-level/:namespace/:name'}
                       element={<ColumnLevel />}
@@ -81,6 +114,7 @@ const App = (): ReactElement => {
           </StyledEngineProvider>
         </ReduxRouter>
       </HelmetProvider>
+      </AuthProvider>
     </Provider>
   )
 }
