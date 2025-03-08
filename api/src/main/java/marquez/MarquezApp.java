@@ -51,6 +51,7 @@ import org.jdbi.v3.jackson2.Jackson2Config;
 import org.jdbi.v3.jackson2.Jackson2Plugin;
 import org.jdbi.v3.postgres.PostgresPlugin;
 import org.jdbi.v3.sqlobject.SqlObjectPlugin;
+import marquez.db.exceptions.DbException;
 
 @Slf4j
 public final class MarquezApp extends Application<MarquezConfig> {
@@ -108,7 +109,7 @@ public final class MarquezApp extends Application<MarquezConfig> {
   }
 
   @Override
-  public void run(@NonNull MarquezConfig config, @NonNull Environment env) {
+  public void run(@NonNull MarquezConfig config, @NonNull Environment env) throws DbException {
     final DataSourceFactory sourceFactory = config.getDataSourceFactory();
     final ManagedDataSource source = sourceFactory.build(env.metrics(), DB_SOURCE_NAME);
 
@@ -117,9 +118,7 @@ public final class MarquezApp extends Application<MarquezConfig> {
     try {
       DbMigration.migrateDbOrError(config.getFlywayFactory(), source, config.isMigrateOnStartup());
     } catch (FlywayException errorOnDbMigrate) {
-      log.info("Stopping app...");
-      // Propagate throwable up the stack.
-      onFatalError(errorOnDbMigrate); // Signal app termination.
+      throw new DbException("Stopping app... error on Flyway DB migration", errorOnDbMigrate);
     }
 
     if (isSentryEnabled(config)) {
@@ -138,12 +137,11 @@ public final class MarquezApp extends Application<MarquezConfig> {
     }
 
     final Jdbi jdbi = newJdbi(config, env, source);
-    final MarquezContext marquezContext =
-        MarquezContext.builder()
-            .jdbi(jdbi)
-            .searchConfig(config.getSearchConfig())
-            .tags(config.getTags())
-            .build();
+    final MarquezContext marquezContext = MarquezContext.builder()
+        .jdbi(jdbi)
+        .searchConfig(config.getSearchConfig())
+        .tags(config.getTags())
+        .build();
 
     registerResources(config, env, marquezContext);
     registerServlets(env);
@@ -172,14 +170,12 @@ public final class MarquezApp extends Application<MarquezConfig> {
   private Jdbi newJdbi(
       @NonNull MarquezConfig config, @NonNull Environment env, @NonNull ManagedDataSource source) {
     final JdbiFactory factory = new JdbiFactory();
-    final Jdbi jdbi =
-        factory
-            .build(env, config.getDataSourceFactory(), source, DB_POSTGRES)
-            .installPlugin(new SqlObjectPlugin())
-            .installPlugin(new PostgresPlugin())
-            .installPlugin(new Jackson2Plugin());
-    SqlLogger sqlLogger =
-        new DelegatingSqlLogger(new LabelledSqlLogger(), new InstrumentedSqlLogger(env.metrics()));
+    final Jdbi jdbi = factory
+        .build(env, config.getDataSourceFactory(), source, DB_POSTGRES)
+        .installPlugin(new SqlObjectPlugin())
+        .installPlugin(new PostgresPlugin())
+        .installPlugin(new Jackson2Plugin());
+    SqlLogger sqlLogger = new DelegatingSqlLogger(new LabelledSqlLogger(), new InstrumentedSqlLogger(env.metrics()));
     if (isSentryEnabled(config)) {
       sqlLogger = new TracingSQLLogger(sqlLogger);
     }

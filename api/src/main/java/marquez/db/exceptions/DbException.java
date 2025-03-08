@@ -17,12 +17,16 @@ public class DbException extends Exception {
   }
 
   /** Constructs a {@code DbException} with the provided {@code cause}. */
-  DbException(@Nullable final Throwable cause) {
+  public DbException(@Nullable final Throwable cause) {
     super(cause);
   }
 
-  /** Constructs a {@code DbException} with the provided {@code message} and the {@code cause}. */
-  DbException(@Nullable final String message, @Nullable final Throwable cause) {
+  /**
+   * Constructs a {@code DbException} with the provided {@code message} and the
+   * {@code cause}.
+   */
+  public DbException(@Nullable final String message, @Nullable final Throwable cause) {
     super(message, cause);
   }
+
 }
