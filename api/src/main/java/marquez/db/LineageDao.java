@@ -42,8 +42,7 @@ public interface LineageDao {
     public record RunSummary(RunId id, Instant start, Instant end, String status) {
     }
 
-    public record DatasetSummary(
-            NamespaceName namespace, DatasetName name, UUID version, RunId producedByRunId) {
+    public record DatasetSummary(NamespaceName namespace, DatasetName name, UUID version, RunId producedByRunId) {
     }
 
     public record UpstreamRunRow(JobSummary job, RunSummary run, DatasetSummary input) {
@@ -63,10 +62,9 @@ public interface LineageDao {
 
     /**
      * Fetch all of the jobs that consume or produce the datasets that are consumed
-     * or produced by the
-     * input jobIds. This returns lineage information up to the specified depth,
-     * utilizing the job_lineage_view
-     * materialized view for performance.
+     * or produced by the input jobIds. This returns lineage information up to the
+     * specified depth, utilizing the job_lineage_view materialized view for
+     * performance.
      *
      * @param jobIds The set of job UUIDs to find lineage for
      * @param depth  The maximum depth to traverse in the lineage graph
@@ -139,11 +137,125 @@ public interface LineageDao {
     Set<JobData> getLineage(@BindList Set<UUID> jobIds, int depth);
 
     /**
+     * Retrieves directly connected datasets (immediate inputs and outputs) for the
+     * specified job(s). This method only returns datasets with a direct connection
+     * (depth=1) without traversing the lineage graph further.
+     *
+     * @param jobIds The set of job UUIDs to find direct connections for
+     * @return A set of DatasetData objects representing directly connected datasets
+     */
+    @SqlQuery("""
+            WITH job_connections AS (
+                -- Get direct input datasets for the specified jobs
+                SELECT
+                    j.uuid AS job_uuid,
+                    j.name AS job_name,
+                    j.namespace_name AS job_namespace,
+                    ds.uuid AS dataset_uuid,
+                    ds.name AS dataset_name,
+                    ds.namespace_name AS dataset_namespace,
+                    'INPUT' AS connection_type
+                FROM jobs_view j
+                INNER JOIN job_versions jv ON j.current_version_uuid = jv.uuid
+                INNER JOIN job_versions_io_mapping io ON io.job_version_uuid = jv.uuid AND io.io_type = 'INPUT'
+                INNER JOIN datasets_view ds ON ds.uuid = io.dataset_uuid
+                WHERE j.uuid IN (<jobIds>) OR j.symlink_target_uuid IN (<jobIds>)
+
+                UNION ALL
+
+                -- Get direct output datasets for the specified jobs
+                SELECT
+                    j.uuid AS job_uuid,
+                    j.name AS job_name,
+                    j.namespace_name AS job_namespace,
+                    ds.uuid AS dataset_uuid,
+                    ds.name AS dataset_name,
+                    ds.namespace_name AS dataset_namespace,
+                    'OUTPUT' AS connection_type
+                FROM jobs_view j
+                INNER JOIN job_versions jv ON j.current_version_uuid = jv.uuid
+                INNER JOIN job_versions_io_mapping io ON io.job_version_uuid = jv.uuid AND io.io_type = 'OUTPUT'
+                INNER JOIN datasets_view ds ON ds.uuid = io.dataset_uuid
+                WHERE j.uuid IN (<jobIds>) OR j.symlink_target_uuid IN (<jobIds>)
+            )
+
+            -- Get the full dataset details for all connected datasets
+            SELECT DISTINCT ON (ds.uuid) ds.*, dv.fields, dv.lifecycle_state
+            FROM job_connections jc
+            INNER JOIN datasets_view ds ON ds.uuid = jc.dataset_uuid
+            LEFT JOIN dataset_versions dv ON dv.uuid = ds.current_version_uuid
+            LEFT JOIN dataset_symlinks dsym ON dsym.namespace_uuid = ds.namespace_uuid AND dsym.name = ds.name
+            WHERE dsym.is_primary = true
+            ORDER BY ds.uuid, ds.updated_at DESC
+            """)
+    Set<DatasetData> getDirectlyConnectedDatasets(@BindList Set<UUID> jobIds);
+
+    /**
+     * Retrieves jobs that are directly connected to the specified dataset(s) as
+     * either producers (writing to the dataset) or consumers (reading from the
+     * dataset).
+     *
+     * @param datasetIds The set of dataset UUIDs to find direct connections for
+     * @return A set of JobData objects representing jobs directly connected to the
+     *         datasets
+     */
+    @SqlQuery("""
+            WITH dataset_connections AS (
+                -- Get jobs that directly use the specified datasets as inputs
+                SELECT
+                    ds.uuid AS dataset_uuid,
+                    j.uuid AS job_uuid,
+                    'CONSUMER' AS connection_type
+                FROM datasets_view ds
+                INNER JOIN job_versions_io_mapping io ON ds.uuid = io.dataset_uuid AND io.io_type = 'INPUT'
+                INNER JOIN job_versions jv ON jv.uuid = io.job_version_uuid
+                INNER JOIN jobs_view j ON j.uuid = jv.job_uuid
+                WHERE ds.uuid IN (<datasetIds>)
+
+                UNION ALL
+
+                -- Get jobs that directly use the specified datasets as outputs
+                SELECT
+                    ds.uuid AS dataset_uuid,
+                    j.uuid AS job_uuid,
+                    'PRODUCER' AS connection_type
+                FROM datasets_view ds
+                INNER JOIN job_versions_io_mapping io ON ds.uuid = io.dataset_uuid AND io.io_type = 'OUTPUT'
+                INNER JOIN job_versions jv ON jv.uuid = io.job_version_uuid
+                INNER JOIN jobs_view j ON j.uuid = jv.job_uuid
+                WHERE ds.uuid IN (<datasetIds>)
+            ),
+
+            job_io AS (
+                -- Get input and output datasets for all connected jobs
+                SELECT
+                    j.uuid AS job_uuid,
+                    ARRAY_AGG(DISTINCT io.dataset_uuid) FILTER (WHERE io.io_type = 'INPUT') AS input_uuids,
+                    ARRAY_AGG(DISTINCT io.dataset_uuid) FILTER (WHERE io.io_type = 'OUTPUT') AS output_uuids
+                FROM dataset_connections dc
+                INNER JOIN jobs_view j ON j.uuid = dc.job_uuid
+                INNER JOIN job_versions jv ON j.current_version_uuid = jv.uuid
+                INNER JOIN job_versions_io_mapping io ON io.job_version_uuid = jv.uuid
+                GROUP BY j.uuid
+            )
+
+            -- Get the full job details for all connected jobs
+            SELECT DISTINCT ON (j.uuid)
+                j.*,
+                jio.input_uuids,
+                jio.output_uuids
+            FROM dataset_connections dc
+            INNER JOIN jobs_view j ON j.uuid = dc.job_uuid
+            LEFT JOIN job_io jio ON jio.job_uuid = j.uuid
+            ORDER BY j.uuid, j.updated_at DESC
+            """)
+    Set<JobData> getDirectlyConnectedJobs(@BindList Set<UUID> datasetIds);
+
+    /**
      * Fetch all of the jobs that consume or produce the datasets that are consumed
-     * or produced by the
-     * input jobIds. This returns lineage information up to the specified depth,
-     * utilizing the job_full_lineage_view
-     * materialized view for optimal performance.
+     * or produced by the input jobIds. This returns lineage information up to the
+     * specified depth, utilizing the job_full_lineage_view materialized view for
+     * optimal performance.
      *
      * @param jobIds The set of job UUIDs to find lineage for
      * @param depth  The maximum depth to traverse in the lineage graph

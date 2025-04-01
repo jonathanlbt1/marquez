@@ -58,6 +58,10 @@ CREATE INDEX IF NOT EXISTS job_full_lineage_view_symlink_uuid_idx ON job_full_li
 CREATE INDEX IF NOT EXISTS job_full_lineage_view_inputs_idx ON job_full_lineage_view USING gin (inputs);
 CREATE INDEX IF NOT EXISTS job_full_lineage_view_outputs_idx ON job_full_lineage_view USING gin (outputs);
 
+-- Add indexes to improve performance of direct connection queries
+CREATE INDEX IF NOT EXISTS idx_job_versions_io_mapping_dataset_uuid ON job_versions_io_mapping (dataset_uuid, io_type);
+CREATE INDEX IF NOT EXISTS idx_job_versions_io_mapping_job_version ON job_versions_io_mapping (job_version_uuid, io_type);
+
 -- Function to refresh the materialized view
 CREATE OR REPLACE FUNCTION refresh_job_full_lineage_view()
 RETURNS TRIGGER AS $$

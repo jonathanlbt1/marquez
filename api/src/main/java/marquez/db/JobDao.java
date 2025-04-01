@@ -31,6 +31,7 @@ import marquez.db.mappers.RunMapper;
 import marquez.db.models.JobRow;
 import marquez.db.models.NamespaceRow;
 import marquez.service.models.Job;
+import marquez.service.models.JobData;
 import marquez.service.models.JobMeta;
 import marquez.service.models.Run;
 import org.jdbi.v3.sqlobject.config.RegisterRowMapper;
@@ -45,8 +46,7 @@ import org.postgresql.util.PGobject;
 @RegisterRowMapper(RunMapper.class)
 public interface JobDao extends BaseDao {
 
-  @SqlQuery(
-      """
+  @SqlQuery("""
         SELECT EXISTS (
           SELECT 1 FROM jobs_view AS j
           WHERE j.namespace_name = :namespaceName AND
@@ -54,8 +54,7 @@ public interface JobDao extends BaseDao {
       """)
   boolean exists(String namespaceName, String jobName);
 
-  @SqlUpdate(
-      """
+  @SqlUpdate("""
         UPDATE jobs
         SET updated_at = :updatedAt,
             current_version_uuid = :currentVersionUuid
@@ -63,8 +62,7 @@ public interface JobDao extends BaseDao {
       """)
   void updateVersionFor(UUID rowUuid, Instant updatedAt, UUID currentVersionUuid);
 
-  @SqlQuery(
-      """
+  @SqlQuery("""
         WITH job_versions_facets AS (
             SELECT
                 f.job_version_uuid
@@ -120,8 +118,7 @@ public interface JobDao extends BaseDao {
       """)
   Optional<Job> findJobByName(String namespaceName, String jobName);
 
-  @SqlUpdate(
-      """
+  @SqlUpdate("""
         UPDATE jobs
         SET is_hidden = true
         WHERE namespace_name = :namespaceName
@@ -129,8 +126,7 @@ public interface JobDao extends BaseDao {
       """)
   void delete(String namespaceName, String name);
 
-  @SqlUpdate(
-      """
+  @SqlUpdate("""
       UPDATE jobs
       SET is_hidden = true
       FROM namespaces n
@@ -141,27 +137,15 @@ public interface JobDao extends BaseDao {
 
   default Optional<Job> findWithDatasetsAndRun(String namespaceName, String jobName) {
     Optional<Job> job = findJobByName(namespaceName, jobName);
-    job.ifPresent(
-        j -> {
-          List<Run> runs = createRunDao().findByLatestJob(namespaceName, jobName, 10, 0);
-          this.setJobData(runs, j);
-          this.setJobDataset(
-              createJobVersionDao().findCurrentInputOutputDatasetsFor(namespaceName, jobName), j);
-        });
+    job.ifPresent(j -> {
+      List<Run> runs = createRunDao().findByLatestJob(namespaceName, jobName, 10, 0);
+      this.setJobData(runs, j);
+      this.setJobDataset(createJobVersionDao().findCurrentInputOutputDatasetsFor(namespaceName, jobName), j);
+    });
     return job;
   }
 
-  @SqlQuery(
-      """
-        SELECT j.*, n.name AS namespace_name
-        FROM jobs_view AS j
-        INNER JOIN namespaces AS n ON j.namespace_uuid = n.uuid
-        WHERE j.uuid=:jobUuid
-      """)
-  Optional<JobRow> findJobByUuidAsRow(UUID jobUuid);
-
-  @SqlQuery(
-      """
+  @SqlQuery("""
         SELECT j.*, n.name AS namespace_name
         FROM jobs_view AS j
         INNER JOIN namespaces AS n ON j.namespace_uuid = n.uuid
@@ -170,8 +154,7 @@ public interface JobDao extends BaseDao {
       """)
   Optional<JobRow> findJobByNameAsRow(String namespaceName, String jobName);
 
-  @SqlQuery(
-      """
+  @SqlQuery("""
         WITH jobs_view_page
         AS (
           SELECT
@@ -247,17 +230,13 @@ public interface JobDao extends BaseDao {
           j.updated_at DESC
         LIMIT :limit OFFSET :offset
       """)
-  List<Job> findAll(
-      String namespaceName,
-      @BindList("lastRunStates") List<RunState> lastRunStates,
-      int limit,
+  List<Job> findAll(String namespaceName, @BindList("lastRunStates") List<RunState> lastRunStates, int limit,
       int offset);
 
   @SqlQuery("SELECT count(*) FROM jobs_view AS j WHERE symlink_target_uuid IS NULL")
   int count();
 
-  @SqlQuery(
-      """
+  @SqlQuery("""
       select
           count(*)
       from
@@ -270,45 +249,26 @@ public interface JobDao extends BaseDao {
       """)
   int countJobRuns(String namespaceName, String job);
 
-  @SqlQuery(
-      "SELECT count(*) FROM jobs_view AS j WHERE (:namespaceName IS NULL OR j.namespace_name = :namespaceName)\n"
-          + "AND symlink_target_uuid IS NULL")
+  @SqlQuery("SELECT count(*) FROM jobs_view AS j WHERE (:namespaceName IS NULL OR j.namespace_name = :namespaceName)\n"
+      + "AND symlink_target_uuid IS NULL")
   int countFor(String namespaceName);
 
-  default List<Job> findAllWithRun(
-      String namespaceName, List<RunState> lastRunStates, int limit, int offset) {
+  default List<Job> findAllWithRun(String namespaceName, List<RunState> lastRunStates, int limit, int offset) {
     RunDao runDao = createRunDao();
-    return findAll(namespaceName, lastRunStates, limit, offset).stream()
-        .peek(
-            j -> {
-              List<Run> runs =
-                  runDao.findByLatestJob(
-                      j.getNamespace().getValue(), j.getName().getValue(), 10, 0);
-              this.setJobData(runs, j);
-            })
-        .toList();
+    return findAll(namespaceName, lastRunStates, limit, offset).stream().peek(j -> {
+      List<Run> runs = runDao.findByLatestJob(j.getNamespace().getValue(), j.getName().getValue(), 10, 0);
+      this.setJobData(runs, j);
+    }).toList();
   }
 
   default void setJobDataset(List<JobDataset> datasets, Job j) {
-    Optional.of(
-            datasets.stream()
-                .filter(d -> d.ioType().equals(IoType.INPUT))
-                .map(
-                    ds ->
-                        new DatasetId(NamespaceName.of(ds.namespace()), DatasetName.of(ds.name())))
-                .collect(Collectors.toSet()))
-        .filter(s -> !s.isEmpty())
-        .ifPresent(s -> j.setInputs(s));
+    Optional.of(datasets.stream().filter(d -> d.ioType().equals(IoType.INPUT))
+        .map(ds -> new DatasetId(NamespaceName.of(ds.namespace()), DatasetName.of(ds.name())))
+        .collect(Collectors.toSet())).filter(s -> !s.isEmpty()).ifPresent(s -> j.setInputs(s));
 
-    Optional.of(
-            datasets.stream()
-                .filter(d -> d.ioType().equals(IoType.OUTPUT))
-                .map(
-                    ds ->
-                        new DatasetId(NamespaceName.of(ds.namespace()), DatasetName.of(ds.name())))
-                .collect(Collectors.toSet()))
-        .filter(s -> !s.isEmpty())
-        .ifPresent(s -> j.setOutputs(s));
+    Optional.of(datasets.stream().filter(d -> d.ioType().equals(IoType.OUTPUT))
+        .map(ds -> new DatasetId(NamespaceName.of(ds.namespace()), DatasetName.of(ds.name())))
+        .collect(Collectors.toSet())).filter(s -> !s.isEmpty()).ifPresent(s -> j.setOutputs(s));
   }
 
   default void setJobData(List<Run> runs, Job j) {
@@ -320,52 +280,26 @@ public interface JobDao extends BaseDao {
     j.setLatestRun(latestRun);
     j.setLatestRuns(runs);
     DatasetVersionDao datasetVersionDao = createDatasetVersionDao();
-    j.setInputs(
-        datasetVersionDao.findInputDatasetVersionsFor(latestRun.getId().getValue()).stream()
-            .map(
-                ds ->
-                    new DatasetId(
-                        NamespaceName.of(ds.getNamespaceName()),
-                        DatasetName.of(ds.getDatasetName())))
-            .collect(Collectors.toSet()));
-    j.setOutputs(
-        datasetVersionDao.findOutputDatasetVersionsFor(latestRun.getId().getValue()).stream()
-            .map(
-                ds ->
-                    new DatasetId(
-                        NamespaceName.of(ds.getNamespaceName()),
-                        DatasetName.of(ds.getDatasetName())))
-            .collect(Collectors.toSet()));
+    j.setInputs(datasetVersionDao.findInputDatasetVersionsFor(latestRun.getId().getValue()).stream()
+        .map(ds -> new DatasetId(NamespaceName.of(ds.getNamespaceName()), DatasetName.of(ds.getDatasetName())))
+        .collect(Collectors.toSet()));
+    j.setOutputs(datasetVersionDao.findOutputDatasetVersionsFor(latestRun.getId().getValue()).stream()
+        .map(ds -> new DatasetId(NamespaceName.of(ds.getNamespaceName()), DatasetName.of(ds.getDatasetName())))
+        .collect(Collectors.toSet()));
   }
 
-  default JobRow upsertJobMeta(
-      NamespaceName namespaceName, JobName jobName, JobMeta jobMeta, ObjectMapper mapper) {
+  default JobRow upsertJobMeta(NamespaceName namespaceName, JobName jobName, JobMeta jobMeta, ObjectMapper mapper) {
     return upsertJobMeta(namespaceName, jobName, null, jobMeta, mapper);
   }
 
-  default JobRow upsertJobMeta(
-      NamespaceName namespaceName,
-      JobName jobName,
-      UUID symlinkTargetUuid,
-      JobMeta jobMeta,
+  default JobRow upsertJobMeta(NamespaceName namespaceName, JobName jobName, UUID symlinkTargetUuid, JobMeta jobMeta,
       ObjectMapper mapper) {
     Instant createdAt = Instant.now();
-    NamespaceRow namespace =
-        createNamespaceDao()
-            .upsertNamespaceRow(
-                UUID.randomUUID(), createdAt, namespaceName.getValue(), DEFAULT_NAMESPACE_OWNER);
-    return upsertJob(
-        UUID.randomUUID(),
-        jobMeta.getType(),
-        createdAt,
-        namespace.getUuid(),
-        namespace.getName(),
-        jobName.getValue(),
-        jobMeta.getDescription().orElse(null),
-        toUrlString(jobMeta.getLocation().orElse(null)),
-        symlinkTargetUuid,
-        toJson(jobMeta.getInputs(), mapper),
-        jobMeta.getRunId().map(RunId::getValue).orElse(null));
+    NamespaceRow namespace = createNamespaceDao().upsertNamespaceRow(UUID.randomUUID(), createdAt,
+        namespaceName.getValue(), DEFAULT_NAMESPACE_OWNER);
+    return upsertJob(UUID.randomUUID(), jobMeta.getType(), createdAt, namespace.getUuid(), namespace.getName(),
+        jobName.getValue(), jobMeta.getDescription().orElse(null), toUrlString(jobMeta.getLocation().orElse(null)),
+        symlinkTargetUuid, toJson(jobMeta.getInputs(), mapper), jobMeta.getRunId().map(RunId::getValue).orElse(null));
   }
 
   default String toUrlString(URL url) {
@@ -386,39 +320,18 @@ public interface JobDao extends BaseDao {
     }
   }
 
-  default JobRow upsertJob(
-      UUID uuid,
-      JobType type,
-      Instant now,
-      UUID namespaceUuid,
-      String namespaceName,
-      String name,
-      String description,
-      String location,
-      UUID symlinkTargetId,
-      PGobject inputs) {
-    return upsertJob(
-        uuid,
-        type,
-        now,
-        namespaceUuid,
-        namespaceName,
-        name,
-        description,
-        location,
-        symlinkTargetId,
-        inputs,
-        null);
+  default JobRow upsertJob(UUID uuid, JobType type, Instant now, UUID namespaceUuid, String namespaceName, String name,
+      String description, String location, UUID symlinkTargetId, PGobject inputs) {
+    return upsertJob(uuid, type, now, namespaceUuid, namespaceName, name, description, location, symlinkTargetId,
+        inputs, null);
   }
 
   /*
    * Note: following SQL never executes. There is database trigger on `jobs_view`
-   * that replaces following SQL
-   * with rewrite_jobs_fqn_table plpgsql function. Code of that function is at
-   * R__1 migration file.
+   * that replaces following SQL with rewrite_jobs_fqn_table plpgsql function.
+   * Code of that function is at R__1 migration file.
    */
-  @SqlQuery(
-      """
+  @SqlQuery("""
         INSERT INTO jobs_view AS j (
           uuid,
           type,
@@ -449,27 +362,15 @@ public interface JobDao extends BaseDao {
           :currentRunUuid
         ) RETURNING *
       """)
-  JobRow upsertJob(
-      UUID uuid,
-      JobType type,
-      Instant now,
-      UUID namespaceUuid,
-      String namespaceName,
-      String name,
-      String description,
-      String location,
-      UUID symlinkTargetId,
-      PGobject inputs,
-      UUID currentRunUuid);
+  JobRow upsertJob(UUID uuid, JobType type, Instant now, UUID namespaceUuid, String namespaceName, String name,
+      String description, String location, UUID symlinkTargetId, PGobject inputs, UUID currentRunUuid);
 
   /*
    * Note: following SQL never executes. There is database trigger on `jobs_view`
-   * that replaces following SQL
-   * with rewrite_jobs_fqn_table plpgsql function. Code of that function is at
-   * R__1 migration file.
+   * that replaces following SQL with rewrite_jobs_fqn_table plpgsql function.
+   * Code of that function is at R__1 migration file.
    */
-  @SqlQuery(
-      """
+  @SqlQuery("""
         INSERT INTO jobs_view AS j (
           uuid,
           parent_job_uuid,
@@ -501,22 +402,10 @@ public interface JobDao extends BaseDao {
         )
         RETURNING *
       """)
-  JobRow upsertJob(
-      UUID uuid,
-      UUID parentJobUuid,
-      JobType type,
-      Instant now,
-      UUID namespaceUuid,
-      String namespaceName,
-      String name,
-      String description,
-      String location,
-      UUID symlinkTargetId,
-      PGobject inputs,
-      UUID currentRunUuid);
+  JobRow upsertJob(UUID uuid, UUID parentJobUuid, JobType type, Instant now, UUID namespaceUuid, String namespaceName,
+      String name, String description, String location, UUID symlinkTargetId, PGobject inputs, UUID currentRunUuid);
 
-  @SqlUpdate(
-      """
+  @SqlUpdate("""
       WITH new_tag AS (
       INSERT INTO tags (uuid, created_at, updated_at, name, description)
       SELECT
@@ -550,8 +439,7 @@ public interface JobDao extends BaseDao {
       ON CONFLICT DO NOTHING
       ;
       """)
-  void updateJobTagsNow(
-      String namespaceName, String jobName, String tagName, Instant now, UUID uuid);
+  void updateJobTagsNow(String namespaceName, String jobName, String tagName, Instant now, UUID uuid);
 
   default void updateJobTags(String namespaceName, String jobName, String tagName) {
     Instant now = Instant.now();
@@ -559,8 +447,142 @@ public interface JobDao extends BaseDao {
     updateJobTagsNow(namespaceName, jobName, tagName, now, uuid);
   }
 
-  @SqlUpdate(
-      """
+  /**
+   * Finds a job by its UUID and returns it as JobData.
+   *
+   * @param uuid The UUID of the job to find
+   * @return An Optional containing the JobData if found, empty otherwise
+   */
+  @SqlQuery("""
+        WITH job_versions_facets AS (
+            SELECT
+                f.job_version_uuid
+            ,   JSON_AGG(f.facet) as facets
+            FROM
+                job_facets f
+            LEFT JOIN
+                jobs_view j on j.current_version_uuid = f.job_version_uuid
+            WHERE
+                j.uuid = :uuid
+            GROUP BY
+                job_version_uuid
+        ),
+        job_tags as (
+        SELECT
+            j.uuid
+        ,   ARRAY_AGG(t.name) as tags
+        FROM
+            jobs j
+        INNER JOIN
+            jobs_tag_mapping jtm
+        ON
+            jtm.job_uuid = j.uuid
+        AND
+            j.uuid = :uuid
+        INNER JOIN
+            tags t
+        ON
+            jtm.tag_uuid = t.uuid
+        GROUP BY
+          j.uuid
+        )
+        SELECT
+            j.*
+        ,   facets
+        ,   jt.tags as tags
+        FROM
+            jobs_view j
+        LEFT OUTER JOIN
+            job_versions_facets f
+        ON
+            j.current_version_uuid = f.job_version_uuid
+        LEFT OUTER JOIN
+            job_tags jt
+        ON
+            j.uuid = jt.uuid
+        WHERE
+            j.uuid = :uuid
+      """)
+  Optional<JobData> findJobDataByUUID(UUID uuid);
+
+  /**
+   * Finds a job by its UUID.
+   *
+   * @param uuid The UUID of the job to find
+   * @return An Optional containing the JobData if found, empty otherwise
+   */
+  @SqlQuery("""
+        WITH job_versions_facets AS (
+            SELECT
+                f.job_version_uuid
+            ,   JSON_AGG(f.facet) as facets
+            FROM
+                job_facets f
+            LEFT JOIN
+                jobs_view j on j.current_version_uuid = f.job_version_uuid
+            WHERE
+                j.uuid = :uuid
+            GROUP BY
+                job_version_uuid
+        ),
+        job_tags as (
+        SELECT
+            j.uuid
+        ,   ARRAY_AGG(t.name) as tags
+        FROM
+            jobs j
+        INNER JOIN
+            jobs_tag_mapping jtm
+        ON
+            jtm.job_uuid = j.uuid
+        AND
+            j.uuid = :uuid
+        INNER JOIN
+            tags t
+        ON
+            jtm.tag_uuid = t.uuid
+        GROUP BY
+          j.uuid
+        )
+        SELECT
+            j.*
+        ,   facets
+        ,   jt.tags as tags
+        FROM
+            jobs_view j
+        LEFT OUTER JOIN
+            job_versions_facets f
+        ON
+            j.current_version_uuid = f.job_version_uuid
+        LEFT OUTER JOIN
+            job_tags jt
+        ON
+            j.uuid = jt.uuid
+        WHERE
+            j.uuid = :uuid
+      """)
+  Optional<Job> findJobByUUID(UUID uuid);
+
+  /**
+   * Finds a job by UUID and includes its datasets and latest run information.
+   *
+   * @param uuid The UUID of the job to find
+   * @return An Optional containing the Job with datasets and run information if
+   *         found, empty otherwise
+   */
+  default Optional<Job> findJobByUUIDWithDatasetsAndRun(UUID uuid) {
+    Optional<Job> job = findJobByUUID(uuid);
+    job.ifPresent(j -> {
+      List<Run> runs = createRunDao().findByLatestJob(j.getNamespace().getValue(), j.getName().getValue(), 10, 0);
+      this.setJobData(runs, j);
+      this.setJobDataset(
+          createJobVersionDao().findCurrentInputOutputDatasetsFor(j.getNamespace().getValue(), j.getName().getValue()),
+          j);
+    });
+    return job;
+  }
+
+  @SqlUpdate("""
       DELETE FROM jobs_tag_mapping jtm
       WHERE EXISTS (
             SELECT 1
