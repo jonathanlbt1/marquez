@@ -137,16 +137,17 @@ public class OpenLineageResource extends BaseResource {
     List<LineageEvent> events = Collections.emptyList();
     switch (sortDirection) {
       case DESC ->
-          events = openLineageDao.getAllLineageEventsDesc(before.get(), after.get(), limit, offset);
+        events = openLineageDao.getAllLineageEventsDesc(before.get(), after.get(), limit, offset);
       case ASC ->
-          events = openLineageDao.getAllLineageEventsAsc(before.get(), after.get(), limit, offset);
+        events = openLineageDao.getAllLineageEventsAsc(before.get(), after.get(), limit, offset);
     }
     int totalCount = openLineageDao.getAllLineageTotalCount(before.get(), after.get());
     return Response.ok(new Events(events, totalCount)).build();
   }
 
   /**
-   * Returns the upstream lineage for a given run. Recursively: run -> dataset version it read from
+   * Returns the upstream lineage for a given run. Recursively: run -> dataset
+   * version it read from
    * -> the run that produced it
    *
    * @param runId the run to get upstream lineage from
@@ -174,5 +175,20 @@ public class OpenLineageResource extends BaseResource {
     List<LineageEvent> value;
 
     int totalCount;
+  }
+
+  @POST
+  @Path("/lineage/refresh")
+  @Timed
+  @ExceptionMetered
+  @ApiOperation(value = "Refresh lineage materialized views", response = Response.class)
+  public Response refreshLineageViews() {
+    try {
+      lineageService.refreshLineageViews();
+      return Response.ok().build();
+    } catch (Exception e) {
+      log.error("Error refreshing lineage views:", e);
+      return Response.serverError().entity("Failed to refresh lineage views").build();
+    }
   }
 }
