@@ -52,8 +52,8 @@ public class OpenLineageResource extends BaseResource {
 
   private final OpenLineageDao openLineageDao;
 
-  public OpenLineageResource(
-      @NonNull final ServiceFactory serviceFactory, @NonNull final OpenLineageDao openLineageDao) {
+  public OpenLineageResource(@NonNull final ServiceFactory serviceFactory,
+      @NonNull final OpenLineageDao openLineageDao) {
     super(serviceFactory);
     this.openLineageDao = openLineageDao;
   }
@@ -71,16 +71,13 @@ public class OpenLineageResource extends BaseResource {
       if (serviceFactory.getSearchService().isEnabled()) {
         serviceFactory.getSearchService().indexEvent((LineageEvent) event);
       }
-      openLineageService
-          .createAsync((LineageEvent) event)
+      openLineageService.createAsync((LineageEvent) event)
           .whenComplete((result, err) -> onComplete(result, err, asyncResponse));
     } else if (event instanceof DatasetEvent) {
-      openLineageService
-          .createAsync((DatasetEvent) event)
+      openLineageService.createAsync((DatasetEvent) event)
           .whenComplete((result, err) -> onComplete(result, err, asyncResponse));
     } else if (event instanceof JobEvent) {
-      openLineageService
-          .createAsync((JobEvent) event)
+      openLineageService.createAsync((JobEvent) event)
           .whenComplete((result, err) -> onComplete(result, err, asyncResponse));
     } else {
       log.warn("Unsupported event type {}. Skipping without error", event.getClass().getName());
@@ -115,8 +112,7 @@ public class OpenLineageResource extends BaseResource {
   @Consumes(APPLICATION_JSON)
   @Produces(APPLICATION_JSON)
   @Path("/lineage")
-  public Response getLineage(
-      @QueryParam("nodeId") @NotNull NodeId nodeId,
+  public Response getLineage(@QueryParam("nodeId") @NotNull NodeId nodeId,
       @QueryParam("depth") @DefaultValue(DEFAULT_DEPTH) int depth) {
     throwIfNotExists(nodeId);
     return Response.ok(lineageService.lineage(nodeId, depth)).build();
@@ -136,18 +132,34 @@ public class OpenLineageResource extends BaseResource {
       @QueryParam("offset") @DefaultValue("0") @Min(value = 0) int offset) {
     List<LineageEvent> events = Collections.emptyList();
     switch (sortDirection) {
-      case DESC ->
-          events = openLineageDao.getAllLineageEventsDesc(before.get(), after.get(), limit, offset);
-      case ASC ->
-          events = openLineageDao.getAllLineageEventsAsc(before.get(), after.get(), limit, offset);
+    case DESC -> events = openLineageDao.getAllLineageEventsDesc(before.get(), after.get(), limit, offset);
+    case ASC -> events = openLineageDao.getAllLineageEventsAsc(before.get(), after.get(), limit, offset);
     }
     int totalCount = openLineageDao.getAllLineageTotalCount(before.get(), after.get());
     return Response.ok(new Events(events, totalCount)).build();
   }
 
   /**
-   * Returns the upstream lineage for a given run. Recursively: run -> dataset version it read from
-   * -> the run that produced it
+   * Returns the direct lineage (immediate connections only) for a given node.
+   * 
+   * @param nodeId The node ID to get direct lineage for
+   * @return The direct lineage for the node
+   */
+  @Timed
+  @ResponseMetered
+  @ExceptionMetered
+  @GET
+  @Consumes(APPLICATION_JSON)
+  @Produces(APPLICATION_JSON)
+  @Path("/lineage/direct")
+  public Response getDirectLineage(@QueryParam("nodeId") @NotNull NodeId nodeId) {
+    throwIfNotExists(nodeId);
+    return Response.ok(lineageService.directLineage(nodeId)).build();
+  }
+
+  /**
+   * Returns the upstream lineage for a given run. Recursively: run -> dataset
+   * version it read from -> the run that produced it
    *
    * @param runId the run to get upstream lineage from
    * @param depth the maximum depth of the upstream lineage
@@ -160,8 +172,7 @@ public class OpenLineageResource extends BaseResource {
   @Consumes(APPLICATION_JSON)
   @Produces(APPLICATION_JSON)
   @Path("/runlineage/upstream")
-  public Response getRunLineageUpstream(
-      @QueryParam("runId") @NotNull RunId runId,
+  public Response getRunLineageUpstream(@QueryParam("runId") @NotNull RunId runId,
       @QueryParam("depth") @DefaultValue(DEFAULT_DEPTH) int depth) {
     throwIfNotExists(runId);
     return Response.ok(lineageService.upstream(runId, depth)).build();
