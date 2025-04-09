@@ -23,6 +23,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 import javax.validation.constraints.NotNull;
@@ -122,6 +124,82 @@ public class LineageService extends DelegatingLineageDao {
     }
     return toLineage(jobData, datasets);
   }
+
+
+  public Lineage directLineage(NodeId nodeId, int depth) {
+        log.debug("Attempting to get lineage for node '{}' with depth '{}'", nodeId.getValue(), depth);
+        Optional<UUID> optionalUUID = getJobUuid(nodeId);
+        if (optionalUUID.isEmpty()) {
+            log.warn(
+                "Failed to get job associated with node '{}', returning orphan graph...",
+                nodeId.getValue());
+            return toLineageWithOrphanDataset(nodeId.asDatasetId());
+        }
+        UUID job = optionalUUID.get();
+
+        // Get upstream and downstream lineage concurrently
+        CompletableFuture<Set<JobData>> upstreamFuture = CompletableFuture
+            .supplyAsync(() -> getUpstreamLineage(job, depth));
+        
+        CompletableFuture<Set<JobData>> downstreamFuture = CompletableFuture
+            .supplyAsync(() -> getDownstreamLineage(job, depth));
+
+        try {
+            // Wait for both futures to complete
+            CompletableFuture.allOf(upstreamFuture, downstreamFuture).join();
+            
+            // Combine results
+            Set<JobData> jobData = new HashSet<>();
+            jobData.addAll(upstreamFuture.get());
+            jobData.addAll(downstreamFuture.get());
+
+            if (jobData.isEmpty()) {
+                log.warn(
+                    "Failed to get lineage for job '{}' associated with node '{}', returning orphan graph...",
+                    job,
+                    nodeId.getValue());
+                return toLineageWithOrphanDataset(nodeId.asDatasetId());
+            }
+
+            // Rest of the existing logic
+            for (JobData j : jobData) {
+                Optional<Run> run = runDao.findRunByUuid(j.getCurrentRunUuid());
+                run.ifPresent(j::setLatestRun);
+            }
+
+            Set<UUID> datasetIds = jobData.stream()
+                .flatMap(jd -> Stream.concat(jd.getInputUuids().stream(), jd.getOutputUuids().stream()))
+                .collect(Collectors.toSet());
+            
+            Set<DatasetData> datasets = new HashSet<>();
+            if (!datasetIds.isEmpty()) {
+                datasets.addAll(this.getDatasetData(datasetIds));
+            }
+
+            if (nodeId.isDatasetType()) {
+                DatasetId datasetId = nodeId.asDatasetId();
+                DatasetData datasetData = this.getDatasetData(
+                    datasetId.getNamespace().getValue(), 
+                    datasetId.getName().getValue());
+
+                if (!datasetIds.contains(datasetData.getUuid())) {
+                    log.warn(
+                        "Found jobs {} which no longer share lineage with dataset '{}' - discarding",
+                        jobData.stream().map(JobData::getId).toList(),
+                        nodeId.getValue());
+                    return toLineageWithOrphanDataset(nodeId.asDatasetId());
+                }
+            }
+
+            return toLineage(jobData, datasets);
+
+        } catch (InterruptedException | ExecutionException e) {
+            log.error("Error getting lineage", e);
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Failed to get lineage", e);
+        }
+    }
+
 
   private Lineage toLineageWithOrphanDataset(@NonNull DatasetId datasetId) {
     final DatasetData datasetData =
